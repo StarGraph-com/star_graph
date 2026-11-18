@@ -44,6 +44,31 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
+## Authentication
+
+Copy `.env.example` to `.env`. Set `SUPABASE_URL` to your Supabase project URL and `SUPABASE_PUBLISHABLE_KEY` to its publishable key. A legacy `anon` key also works in that variable. Enable the Email provider and new user signups in Supabase.
+
+```bash
+npm ci
+npm run start:dev -- --env-file .env
+```
+
+For production, set the same variables in the process environment and serve the API over HTTPS. Requests and responses that carry credentials or tokens should stay out of application and proxy logs.
+
+| Endpoint | Request | Success |
+| --- | --- | --- |
+| `POST /auth/register` | JSON fields `email` and `password` | `201` with a session or email confirmation instructions |
+| `POST /auth/login` | JSON fields `email` and `password` | `200` with the user and session |
+| `POST /auth/refresh` | JSON field `refreshToken` | `200` with the user and replacement session |
+| `GET /auth/me` | `Authorization: Bearer <accessToken>` | `200` with `{ user }` |
+| `POST /auth/logout` | `Authorization: Bearer <accessToken>` | `204` after revoking the current session |
+
+Session responses include `user` with `id` and `email`, and `session` with `accessToken`, `refreshToken`, and `expiresIn` in seconds. Store tokens securely and replace both after refreshing. If the access token expires before logout, refresh the session first. Discard both tokens after logout.
+
+If Supabase requires email confirmation, registration returns `user: null`, `session: null`, and a `message`. Open the confirmation link from Supabase, then call `/auth/login`. Supabase uses the configured Site URL after confirmation. Its default email service only sends to authorized project team addresses. For other recipients, configure custom SMTP. [Supabase password authentication](https://supabase.com/docs/guides/auth/passwords)
+
+The guard on `/auth/me` checks the access token with Supabase on every request. It rejects missing, invalid, expired, or revoked sessions with `401`. Errors use Nest's JSON format with `statusCode` and `message`.
+
 ## Run tests
 
 ```bash
