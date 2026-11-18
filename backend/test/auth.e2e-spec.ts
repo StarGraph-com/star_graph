@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 const projectUrl = 'https://stargraph-tests.supabase.co';
 const authUrl = `${projectUrl}/auth/v1`;
@@ -47,7 +48,13 @@ describe('Authentication API', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(PrismaService)
+      .useValue({
+        onModuleInit: jest.fn(),
+        onModuleDestroy: jest.fn(),
+      })
+      .compile();
     app = module.createNestApplication();
     await app.init();
     provider = jest.spyOn(globalThis, 'fetch');
