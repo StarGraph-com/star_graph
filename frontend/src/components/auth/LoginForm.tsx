@@ -6,29 +6,30 @@ import { useRouter } from "next/navigation";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
 import { useAuth } from "@/context/AuthContext";
 
 export function LoginForm() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, loadingSession } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || loadingSession) return;
     setLoading(true);
-    setTimeout(() => {
-      login(email);
-      router.push("/dashboard");
-    }, 400);
-  };
-
-  const handleGoogleLogin = () => {
-    login("alex@stargraph.io");
-    router.push("/dashboard");
+    setError("");
+    try {
+      await login({ email, password });
+      router.replace("/dashboard");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Sign-in failed. Try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -43,22 +44,12 @@ export function LoginForm() {
         </p>
       </div>
 
-      {/* SSO Buttons */}
-      <SocialAuthButtons onGoogleClick={handleGoogleLogin} isLoading={loading} />
-
-      {/* Divider */}
-      <div className="relative my-4 flex items-center justify-center">
-        <div className="w-full border-t border-[#E5E0D5]" />
-        <span className="absolute bg-[#FBF8F2] px-3 text-[11px] font-normal text-[#8E948E]">
-          or
-        </span>
-      </div>
-
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-3.5">
         <Input
           label="Email address"
           type="email"
+          autoComplete="email"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -70,6 +61,7 @@ export function LoginForm() {
           <Input
             label="Password"
             type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -91,32 +83,15 @@ export function LoginForm() {
               </button>
             }
           />
-          <div className="flex justify-end mt-1.5">
-            <Link
-              href="/forgot-password"
-              className="text-[11.5px] text-[#636A64] hover:text-[#141A17] hover:underline"
-            >
-              Forgot password?
-            </Link>
-          </div>
         </div>
 
+        {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+
         <div className="pt-1.5">
-          <Button type="submit" variant="primary" disabled={loading}>
+          <Button type="submit" variant="primary" disabled={loading || loadingSession}>
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </div>
-
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            login(email || undefined);
-            router.push("/dashboard");
-          }}
-        >
-          Email me a sign-in link instead
-        </Button>
       </form>
 
       {/* Footer navigation */}

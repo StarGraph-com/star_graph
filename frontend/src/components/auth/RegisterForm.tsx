@@ -6,29 +6,36 @@ import { useRouter } from "next/navigation";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { SocialAuthButtons } from "@/components/auth/SocialAuthButtons";
 import { useAuth } from "@/context/AuthContext";
 
 export function RegisterForm() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { register, loadingSession } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || loadingSession) return;
     setLoading(true);
-    setTimeout(() => {
-      login(email);
-      router.push("/dashboard");
-    }, 400);
-  };
-
-  const handleGoogleLogin = () => {
-    login("alex@stargraph.io");
-    router.push("/dashboard");
+    setError("");
+    setMessage("");
+    try {
+      const result = await register({ email, password });
+      if (result.user) {
+        router.replace("/dashboard");
+      } else {
+        setMessage(result.message ?? "Check your email to confirm your account.");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Registration failed. Try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -43,22 +50,12 @@ export function RegisterForm() {
         </p>
       </div>
 
-      {/* Continue with Google SSO */}
-      <SocialAuthButtons onGoogleClick={handleGoogleLogin} isLoading={loading} />
-
-      {/* Divider */}
-      <div className="relative my-4 flex items-center justify-center">
-        <div className="w-full border-t border-[#E5E0D5]" />
-        <span className="absolute bg-[#FBF8F2] px-3 text-[11px] font-normal text-[#8E948E]">
-          or
-        </span>
-      </div>
-
       {/* Form Fields */}
       <form onSubmit={handleSubmit} className="space-y-3.5">
         <Input
           label="Email address"
           type="email"
+          autoComplete="email"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -69,7 +66,9 @@ export function RegisterForm() {
         <Input
           label="Password"
           type={showPassword ? "text" : "password"}
+          autoComplete="new-password"
           required
+          minLength={8}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password"
@@ -92,22 +91,14 @@ export function RegisterForm() {
           }
         />
 
+        {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+        {message && <p role="status" className="text-xs text-[#464D47]">{message}</p>}
+
         <div className="pt-1.5">
-          <Button type="submit" variant="primary" disabled={loading}>
+          <Button type="submit" variant="primary" disabled={loading || loadingSession}>
             {loading ? "Creating account..." : "Create account"}
           </Button>
         </div>
-
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            login(email || undefined);
-            router.push("/dashboard");
-          }}
-        >
-          Email me a sign-in link instead
-        </Button>
       </form>
 
       {/* Footer Link */}

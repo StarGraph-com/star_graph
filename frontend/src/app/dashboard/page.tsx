@@ -1,29 +1,47 @@
 "use client";
 
-import React, { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/Button";
 import { LogOut, LayoutGrid, Users, Settings, FolderGit2 } from "lucide-react";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, loadingSession, sessionError, logout } = useAuth();
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
 
   useEffect(() => {
-    // If not authenticated in mock context, you can still view mock fallback or redirect
-  }, [isAuthenticated, router]);
+    if (!loadingSession && !sessionError && !user) router.replace("/login");
+  }, [loadingSession, router, sessionError, user]);
 
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    setLogoutError("");
+    try {
+      await logout();
+    } catch (error) {
+      setLogoutError(error instanceof Error ? error.message : "Sign-out failed. Try again.");
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
-  const displayName = user?.name || "Alex Vance";
-  const displayEmail = user?.email || "alex@stargraph.io";
-  const studioName = user?.studioName || "StarGraph Creative Lab";
+  if (!user) {
+    return (
+      <main className="min-h-screen grid place-content-center gap-4 bg-[#F5F2EB] text-[#141A17]">
+        {sessionError ? (
+          <>
+            <p role="alert">{sessionError}</p>
+            <Button onClick={() => window.location.reload()}>Try again</Button>
+          </>
+        ) : (
+          <p role="status">{loadingSession ? "Checking your session…" : "Opening sign in…"}</p>
+        )}
+      </main>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F2EB] text-[#141A17] font-sans flex flex-col">
@@ -38,24 +56,12 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 text-right">
-            <div>
-              <p className="text-sm font-medium text-[#141A17]">{displayName}</p>
-              <p className="text-xs text-[#727974]">{displayEmail}</p>
-            </div>
-            {user?.avatarUrl && (
-              <Image
-                src={user.avatarUrl}
-                alt="Avatar"
-                width={36}
-                height={36}
-                className="w-9 h-9 rounded-full object-cover border border-[#DDD8CD]"
-                unoptimized
-              />
-            )}
-          </div>
+          <p className="text-sm font-medium text-[#141A17]">
+            {user.email ?? "StarGraph account"}
+          </p>
           <button
             onClick={handleLogout}
+            disabled={loggingOut}
             className="p-2 text-[#727974] hover:text-[#141A17] hover:bg-black/5 rounded-lg transition-colors"
             title="Log out"
           >
@@ -66,25 +72,30 @@ export default function DashboardPage() {
 
       {/* Main Workspace Body */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-6 md:p-10 space-y-8">
+        {logoutError && <p role="alert" className="text-sm text-red-700">{logoutError}</p>}
         {/* Welcome Banner */}
         <div className="bg-[#FAF8F5] rounded-xl p-8 border border-[#E6E1D8] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-[#111714]">
-              {studioName}
+              StarGraph Creative Lab
             </h1>
             <p className="text-sm text-[#5A605B] mt-1">
-              Welcome back, {displayName}. Your active sprints and studio canvases are up to date.
+              Welcome to your sample workspace.
             </p>
           </div>
           <div className="flex items-center gap-2.5">
-            <Link href="/register">
-              <Button variant="secondary" fullWidth={false}>
-                Switch Account
-              </Button>
-            </Link>
+            <Button
+              variant="secondary"
+              fullWidth={false}
+              onClick={handleLogout}
+              disabled={loggingOut}
+            >
+              Switch Account
+            </Button>
             <Button
               variant="primary"
               fullWidth={false}
+              disabled
               className="bg-[#6558E8] hover:bg-[#594cdb]"
             >
               + New Canvas

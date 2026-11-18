@@ -1,56 +1,85 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { User, mockUser } from "@/data/mockUser";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import type { AuthResult, AuthUser } from "@/lib/auth";
 
-interface AuthContextType {
-  user: User | null;
-  isAuthenticated: boolean;
-  login: (email?: string) => void;
-  logout: () => void;
+type Credentials = { email: string; password: string };
+type AuthContextValue = {
+  user: AuthUser | null;
+  loadingSession: boolean;
+  sessionError: string | null;
+  login: (credentials: Credentials) => Promise<AuthResult>;
+  register: (credentials: Credentials) => Promise<AuthResult>;
+  logout: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+const unavailable = "Authentication is temporarily unavailable. Try again.";
+
+async function authRequest(options: RequestInit = {}): Promise<AuthResult> {
+  const send = async () => {
+    const response = await fetch("/api/auth", { ...options, cache: "no-store" });
+    if (response.status === 204) return { user: null };
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.message || unavailable);
+    if (!result) throw new Error(unavailable);
+    return result;
+  };
+
+  // A session refresh rotates cookies. Serialize requests across tabs when supported.
+  return navigator.locks?.request("stargraph-auth", send) ?? send();
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  isAuthenticated: false,
-  login: () => {},
-  logout: () => {},
-});
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("stargraph_user");
-    if (saved) {
-      try {
-        setUser(JSON.parse(saved));
-      } catch {
-        localStorage.removeItem("stargraph_user");
-      }
-    }
+    let active = true;
+    authRequest()
+      .then((result) => {
+        if (active) setUser(result.user);
+      })
+      .catch(() => {
+        if (active) setSessionError(unavailable);
+      })
+      .finally(() => {
+        if (active) setLoadingSession(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const login = (email?: string) => {
-    const activeUser: User = {
-      ...mockUser,
-      email: email || mockUser.email,
-    };
-    setUser(activeUser);
-    localStorage.setItem("stargraph_user", JSON.stringify(activeUser));
-  };
+  async function authenticate(action: "login" | "register", credentials: Credentials) {
+    const result = await authRequest({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...credentials }),
+    });
+    if (result.user) {
+      setUser(result.user);
+      setSessionError(null);
+    }
+    return result;
+  }
 
-  const logout = () => {
+  async function logout() {
+    await authRequest({ method: "DELETE" });
     setUser(null);
-    localStorage.removeItem("stargraph_user");
-  };
+    setSessionError(null);
+  }
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
-        login,
+        loadingSession,
+        sessionError,
+        login: (credentials) => authenticate("login", credentials),
+        register: (credentials) => authenticate("register", credentials),
         logout,
       }}
     >
@@ -60,6 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useAuth() {
-  return useContext(AuthContext);
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth requires AuthProvider.");
+  return context;
 }
-
