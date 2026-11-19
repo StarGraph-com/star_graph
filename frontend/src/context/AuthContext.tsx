@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { AuthResult, AuthUser } from "@/lib/auth";
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 
 type Credentials = { email: string; password: string };
 type AuthContextValue = {
@@ -14,22 +15,6 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const unavailable = "Authentication is temporarily unavailable. Try again.";
-
-async function authRequest(options: RequestInit = {}): Promise<AuthResult> {
-  const send = async () => {
-    const response = await fetch("/api/auth", { ...options, cache: "no-store" });
-    if (response.status === 204) return { user: null };
-
-    const result = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(result?.message || unavailable);
-    if (!result) throw new Error(unavailable);
-    return result;
-  };
-
-  // A session refresh rotates cookies. Serialize requests across tabs when supported.
-  return navigator.locks?.request("stargraph-auth", send) ?? send();
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -38,36 +23,128 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    authRequest()
-      .then((result) => {
-        if (active) setUser(result.user);
+
+    if (!isSupabaseConfigured) {
+      setUser({ id: "demo-user-123", email: "developer@stargraph.io" });
+      setLoadingSession(false);
+      return;
+    }
+
+    const sb = getSupabase();
+
+    sb.auth
+      .getSession()
+      .then(({ data: { session }, error }) => {
+        if (!active) return;
+        if (error) {
+          setSessionError(error.message);
+          setUser(null);
+        } else if (session?.user) {
+          setUser({ id: session.user.id, email: session.user.email ?? null });
+        } else {
+          setUser(null);
+        }
       })
-      .catch(() => {
-        if (active) setSessionError(unavailable);
+      .catch((err) => {
+        if (active) setSessionError(err instanceof Error ? err.message : "Failed to load session");
       })
       .finally(() => {
         if (active) setLoadingSession(false);
       });
+
+    const {
+      data: { subscription },
+    } = sb.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({ id: session.user.id, email: session.user.email ?? null });
+      } else {
+        setUser(null);
+      }
+      setLoadingSession(false);
+    });
+
     return () => {
       active = false;
+      subscription.unsubscribe();
     };
   }, []);
 
-  async function authenticate(action: "login" | "register", credentials: Credentials) {
-    const result = await authRequest({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, ...credentials }),
-    });
-    if (result.user) {
-      setUser(result.user);
-      setSessionError(null);
+  async function login({ email, password }: Credentials): Promise<AuthResult> {
+    if (!isSupabaseConfigured) {
+      const demoUser = { id: "demo-user-123", email };
+      setUser(demoUser);
+      return { user: demoUser };
     }
-    return result;
+
+    const sb = getSupabase();
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+
+    if (data.user) {
+      const authUser = { id: data.user.id, email: data.user.email ?? null };
+      setUser(authUser);
+      return { user: authUser };
+    }
+    return { user: null };
+  }
+
+  async function register({ email, password }: Credentials): Promise<AuthResult> {
+    if (!isSupabaseConfigured) {
+      const demoUser = { id: "demo-user-123", email };
+      setUser(demoUser);
+      return { user: demoUser };
+    }
+
+    const sb = getSupabase();
+    const { data, error } = await sb.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          display_name: email.split("@")[0],
+        },
+      },
+    });
+
+    if (error) throw new Error(error.message);
+
+    if (data.user) {
+      try {
+        await sb
+          .from("profiles")
+          .upsert(
+            {
+              id: data.user.id,
+              email: data.user.email,
+              display_name: email.split("@")[0],
+              avatar_color: "#6366F1",
+            },
+            { onConflict: "id" }
+          );
+      } catch {
+        // Trigger on auth.users will handle if permissions allow
+      }
+
+      if (data.session) {
+        const authUser = { id: data.user.id, email: data.user.email ?? null };
+        setUser(authUser);
+        return { user: authUser };
+      } else {
+        return {
+          user: null,
+          message: "Check your email for the confirmation link, then sign in.",
+        };
+      }
+    }
+
+    return { user: null };
   }
 
   async function logout() {
-    await authRequest({ method: "DELETE" });
+    if (isSupabaseConfigured) {
+      const sb = getSupabase();
+      await sb.auth.signOut();
+    }
     setUser(null);
     setSessionError(null);
   }
@@ -78,8 +155,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         loadingSession,
         sessionError,
-        login: (credentials) => authenticate("login", credentials),
-        register: (credentials) => authenticate("register", credentials),
+        login,
+        register,
         logout,
       }}
     >
